@@ -5,11 +5,11 @@ require('dotenv').config();
 
 const app = express();
 
-// CORS Configuração
+// CORS que funciona
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'http://localhost:5173', 
+    'http://localhost:5173',
     'https://fastroute.netlify.app'
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -21,12 +21,21 @@ app.use(cors({
 app.options('*', cors());
 app.use(express.json());
 
-// Rota de teste básica
+// ===========================
+// ROTA DE TESTE
+// ===========================
 app.get('/api/test', (req, res) => {
-  res.json({ message: 'API funcionando!' });
+  res.json({ 
+    message: '✅ API funcionando!',
+    timestamp: new Date().toISOString()
+  });
 });
 
-// TAREFAS - Rotas básicas
+// ===========================
+// ROTAS DE TAREFAS
+// ===========================
+
+// Listar todas as tarefas
 app.get('/api/tarefas', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM tarefas ORDER BY created_at DESC');
@@ -37,27 +46,110 @@ app.get('/api/tarefas', async (req, res) => {
   }
 });
 
+// Buscar uma tarefa específica
+app.get('/api/tarefas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('SELECT * FROM tarefas WHERE id = $1', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tarefa não encontrada' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Erro ao buscar tarefa:', err);
+    res.status(500).json({ error: 'Erro ao buscar tarefa' });
+  }
+});
+
+// Criar nova tarefa
 app.post('/api/tarefas', async (req, res) => {
   try {
     const { codigo, cliente, endereco, tipo, equipamento, peso, data, periodo } = req.body;
+
     const result = await pool.query(
-      'INSERT INTO tarefas (codigo, cliente, endereco, tipo, equipamento, peso, data, periodo) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+      `INSERT INTO tarefas (codigo, cliente, endereco, tipo, equipamento, peso, data, periodo) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
       [codigo, cliente, endereco, tipo, equipamento, peso, data, periodo]
     );
+    
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Erro ao criar tarefa:', err);
+    
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Código de tarefa já existe' });
     }
+    
     res.status(500).json({ error: 'Erro ao criar tarefa' });
   }
 });
 
-// Rota DELETE simplificada para teste
-app.delete('/api/tarefas/*', async (req, res) => {
+// ATUALIZAR TAREFA (DESIGNAR) - ROTA QUE ESTAVA FALTANDO!
+app.put('/api/tarefas/:id', async (req, res) => {
   try {
-    const id = req.path.split('/').pop(); // Pega o ID da URL
+    const { id } = req.params;
+    const { status, motorista, caminhao, observacao } = req.body;
+    
+    console.log(`📝 Atualizando tarefa ${id}:`, { status, motorista, caminhao });
+    
+    const result = await pool.query(
+      `UPDATE tarefas 
+       SET status = $1, motorista = $2, caminhao = $3, 
+           observacao = $4,
+           data_finalizacao = CASE 
+             WHEN $1 = 'Concluída' THEN NOW() 
+             ELSE data_finalizacao 
+           END,
+           updated_at = NOW()
+       WHERE id = $5 
+       RETURNING *`,
+      [status, motorista, caminhao, observacao, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tarefa não encontrada' });
+    }
+    
+    console.log(`✅ Tarefa ${id} atualizada com sucesso`);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar tarefa:', err);
+    res.status(500).json({ error: 'Erro ao atualizar tarefa' });
+  }
+});
+
+// Editar tarefa completa
+app.patch('/api/tarefas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { codigo, cliente, endereco, equipamento, peso } = req.body;
+    
+    const result = await pool.query(
+      `UPDATE tarefas 
+       SET codigo = $1, cliente = $2, endereco = $3, 
+           equipamento = $4, peso = $5, updated_at = NOW()
+       WHERE id = $6 RETURNING *`,
+      [codigo, cliente, endereco, equipamento, peso, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tarefa não encontrada' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Erro ao editar tarefa:', err);
+    res.status(500).json({ error: 'Erro ao editar tarefa' });
+  }
+});
+
+// Deletar tarefa
+app.delete('/api/tarefas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
     const result = await pool.query('DELETE FROM tarefas WHERE id = $1 RETURNING *', [id]);
     
     if (result.rows.length === 0) {
@@ -71,7 +163,10 @@ app.delete('/api/tarefas/*', async (req, res) => {
   }
 });
 
-// MOTORISTAS
+// ===========================
+// ROTAS DE MOTORISTAS
+// ===========================
+
 app.get('/api/motoristas', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM motoristas ORDER BY nome');
@@ -85,21 +180,70 @@ app.get('/api/motoristas', async (req, res) => {
 app.post('/api/motoristas', async (req, res) => {
   try {
     const { nome, email, telefone, cnh, categoria, status } = req.body;
+    
     const result = await pool.query(
-      'INSERT INTO motoristas (nome, email, telefone, cnh, categoria, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      `INSERT INTO motoristas (nome, email, telefone, cnh, categoria, status) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
       [nome, email, telefone, cnh, categoria, status || 'Disponível']
     );
+    
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Erro ao criar motorista:', err);
+    
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Email ou CNH já cadastrado' });
     }
+    
     res.status(500).json({ error: 'Erro ao criar motorista' });
   }
 });
 
-// CAMINHÕES
+app.put('/api/motoristas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nome, email, telefone, cnh, categoria, status } = req.body;
+    
+    const result = await pool.query(
+      `UPDATE motoristas 
+       SET nome = $1, email = $2, telefone = $3, 
+           cnh = $4, categoria = $5, status = $6, updated_at = NOW()
+       WHERE id = $7 RETURNING *`,
+      [nome, email, telefone, cnh, categoria, status, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Motorista não encontrado' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar motorista:', err);
+    res.status(500).json({ error: 'Erro ao atualizar motorista' });
+  }
+});
+
+app.delete('/api/motoristas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query('DELETE FROM motoristas WHERE id = $1 RETURNING *', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Motorista não encontrado' });
+    }
+    
+    res.json({ message: 'Motorista excluído com sucesso' });
+  } catch (err) {
+    console.error('Erro ao excluir motorista:', err);
+    res.status(500).json({ error: 'Erro ao excluir motorista' });
+  }
+});
+
+// ===========================
+// ROTAS DE CAMINHÕES
+// ===========================
+
 app.get('/api/caminhoes', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM caminhoes ORDER BY placa');
@@ -113,27 +257,102 @@ app.get('/api/caminhoes', async (req, res) => {
 app.post('/api/caminhoes', async (req, res) => {
   try {
     const { placa, modelo, capacidade, status } = req.body;
+    
     const result = await pool.query(
-      'INSERT INTO caminhoes (placa, modelo, capacidade, status) VALUES ($1, $2, $3, $4) RETURNING *',
+      `INSERT INTO caminhoes (placa, modelo, capacidade, status) 
+       VALUES ($1, $2, $3, $4) RETURNING *`,
       [placa, modelo, capacidade, status || 'Disponível']
     );
+    
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Erro ao criar caminhão:', err);
+    
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Placa já cadastrada' });
     }
+    
     res.status(500).json({ error: 'Erro ao criar caminhão' });
   }
 });
 
-// Rota catch-all para 404
-app.use((req, res) => {
-  res.status(404).json({ error: 'Rota não encontrada' });
+app.put('/api/caminhoes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { placa, modelo, capacidade, status } = req.body;
+    
+    const result = await pool.query(
+      `UPDATE caminhoes 
+       SET placa = $1, modelo = $2, capacidade = $3, status = $4, updated_at = NOW()
+       WHERE id = $5 RETURNING *`,
+      [placa, modelo, capacidade, status, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Caminhão não encontrado' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar caminhão:', err);
+    res.status(500).json({ error: 'Erro ao atualizar caminhão' });
+  }
 });
 
+app.delete('/api/caminhoes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query('DELETE FROM caminhoes WHERE id = $1 RETURNING *', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Caminhão não encontrado' });
+    }
+    
+    res.json({ message: 'Caminhão excluído com sucesso' });
+  } catch (err) {
+    console.error('Erro ao excluir caminhão:', err);
+    res.status(500).json({ error: 'Erro ao excluir caminhão' });
+  }
+});
+
+// ===========================
+// ROTA DE ESTATÍSTICAS
+// ===========================
+app.get('/api/estatisticas', async (req, res) => {
+  try {
+    const stats = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM tarefas) as total_tarefas,
+        (SELECT COUNT(*) FROM tarefas WHERE status = 'Pendente') as pendentes,
+        (SELECT COUNT(*) FROM tarefas WHERE status = 'Designada') as designadas,
+        (SELECT COUNT(*) FROM tarefas WHERE status = 'Concluída') as concluidas,
+        (SELECT COUNT(*) FROM tarefas WHERE status = 'Cancelada') as canceladas,
+        (SELECT COUNT(*) FROM motoristas) as total_motoristas,
+        (SELECT COUNT(*) FROM caminhoes) as total_caminhoes
+    `);
+    
+    res.json(stats.rows[0]);
+  } catch (err) {
+    console.error('Erro ao buscar estatísticas:', err);
+    res.status(500).json({ error: 'Erro ao buscar estatísticas' });
+  }
+});
+
+// ===========================
+// TRATAMENTO DE ROTAS NÃO ENCONTRADAS
+// ===========================
+app.use((req, res) => {
+  console.log(`🚫 Rota não encontrada: ${req.method} ${req.path}`);
+  res.status(404).json({ error: 'Rota não encontrada', path: req.path, method: req.method });
+});
+
+// ===========================
+// INICIAR SERVIDOR
+// ===========================
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  console.log(`📡 API: http://localhost:${PORT}/api`);
 });
