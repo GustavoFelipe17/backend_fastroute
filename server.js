@@ -9,11 +9,18 @@ const app = express();
 // MIDDLEWARES
 // ===========================
 app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5173'], // Só localhost
+  credentials: true
+}));
+
+// DEPOIS (deve ficar assim):
+app.use(cors({
   origin: [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  process.env.FRONTEND_URL
-],
+    'http://localhost:3000',
+    'http://localhost:5173', 
+    'https://fastroute.netlify.app',  // ← SEU SITE NO NETLIFY
+    'https://*.netlify.app'           // ← QUALQUER SUBDOMÍNIO NETLIFY
+  ],
   credentials: true
 }));
 app.use(express.json());
