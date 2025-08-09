@@ -8,12 +8,8 @@ const app = express();
 // ===========================
 // MIDDLEWARES
 // ===========================
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173'], // Só localhost
-  credentials: true
-}));
 
-// DEPOIS (deve ficar assim):
+// CONFIGURAÇÃO CORS CORRIGIDA (UMA SÓ!)
 app.use(cors({
   origin: [
     'http://localhost:3000',
@@ -21,11 +17,15 @@ app.use(cors({
     'https://fastroute.netlify.app',
     'https://*.netlify.app'
   ],
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // ← IMPORTANTE!
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept'],
   credentials: true,
-  optionsSuccessStatus: 200 // Para navegadores antigos
+  optionsSuccessStatus: 200
 }));
+
+// Handler para requisições OPTIONS (preflight)
+app.options('*', cors());
+
 app.use(express.json());
 
 // ===========================
