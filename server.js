@@ -18,10 +18,13 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:5173', 
-    'https://fastroute.netlify.app',  // ← SEU SITE NO NETLIFY
-    'https://*.netlify.app'           // ← QUALQUER SUBDOMÍNIO NETLIFY
+    'https://fastroute.netlify.app',
+    'https://*.netlify.app'
   ],
-  credentials: true
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // ← IMPORTANTE!
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true,
+  optionsSuccessStatus: 200 // Para navegadores antigos
 }));
 app.use(express.json());
 
