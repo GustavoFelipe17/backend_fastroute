@@ -14,11 +14,11 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:5173',
+    'https://fastroute.netlify.app',
     'https://seu-app.vercel.app',
-    // Adicione aqui a URL do seu frontend quando deployar
   ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -67,6 +67,93 @@ app.get('/health', async (req, res) => {
       error: err.message
     });
   }
+});
+
+// --- ROTAS PARA TAREFAS ---
+
+app.get('/api/tarefas', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM tarefas ORDER BY id DESC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Erro em GET /api/tarefas:', err.message);
+        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
+    }
+});
+
+app.post('/api/tarefas', async (req, res) => {
+    try {
+        const { codigo, cliente, endereco, equipamento, peso, status } = req.body;
+        
+        if (!codigo || !cliente || !endereco || !equipamento || !peso) {
+            return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+        }
+        
+        const newTarefa = await pool.query(
+            "INSERT INTO tarefas (codigo, cliente, endereco, equipamento, peso, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+            [codigo, cliente, endereco, equipamento, peso, status || 'Pendente']
+        );
+        res.status(201).json(newTarefa.rows[0]);
+    } catch (err) {
+        console.error('Erro em POST /api/tarefas:', err.message);
+        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
+    }
+});
+
+app.put('/api/tarefas/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, motorista, caminhao } = req.body;
+        
+        const updateTarefa = await pool.query(
+            "UPDATE tarefas SET status = $1, motorista = $2, caminhao = $3 WHERE id = $4 RETURNING *",
+            [status, motorista, caminhao, id]
+        );
+        
+        if (updateTarefa.rows.length === 0) {
+            return res.status(404).json({ error: "Tarefa não encontrada." });
+        }
+        res.json(updateTarefa.rows[0]);
+    } catch (err) {
+        console.error('Erro em PUT /api/tarefas/:id:', err.message);
+        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
+    }
+});
+
+app.patch('/api/tarefas/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { codigo, cliente, endereco, equipamento, peso } = req.body;
+        
+        const updateTarefa = await pool.query(
+            "UPDATE tarefas SET codigo = $1, cliente = $2, endereco = $3, equipamento = $4, peso = $5 WHERE id = $6 RETURNING *",
+            [codigo, cliente, endereco, equipamento, peso, id]
+        );
+        
+        if (updateTarefa.rows.length === 0) {
+            return res.status(404).json({ error: "Tarefa não encontrada." });
+        }
+        res.json(updateTarefa.rows[0]);
+    } catch (err) {
+        console.error('Erro em PATCH /api/tarefas/:id:', err.message);
+        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
+    }
+});
+
+app.delete('/api/tarefas/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query("DELETE FROM tarefas WHERE id = $1 RETURNING *", [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Tarefa não encontrada" });
+        }
+        
+        res.json({ message: "Tarefa deletada com sucesso.", deletedTarefa: result.rows[0] });
+    } catch (err) {
+        console.error('Erro em DELETE /api/tarefas/:id:', err.message);
+        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
+    }
 });
 
 // --- ROTAS PARA MOTORISTAS ---
