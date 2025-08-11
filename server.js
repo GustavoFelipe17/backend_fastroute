@@ -1,22 +1,23 @@
 // Importação dos módulos necessários
 const express = require('express');
 const cors = require('cors');
-const db = require('./db'); // Importa a configuração da base de dados
+// Alterado para 'pool' para refletir que estamos a importar o pool diretamente
+const pool = require('./db'); 
 
 // Inicialização da aplicação Express
 const app = express();
-const port = process.env.PORT || 3001; // Usa a porta do ambiente ou 3001 como padrão
+const port = process.env.PORT || 3001;
 
 // Middlewares
-app.use(cors()); // Habilita o CORS para permitir pedidos de origens diferentes
-app.use(express.json()); // Permite que o servidor entenda JSON no corpo dos pedidos
+app.use(cors());
+app.use(express.json());
 
 // --- ROTAS PARA MOTORISTAS ---
 
-// Rota para obter todos os motoristas
 app.get('/motoristas', async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM motoristas ORDER BY id ASC');
+    // Alterado de db.query para pool.query
+    const result = await pool.query('SELECT * FROM motoristas ORDER BY id ASC');
     res.json(result.rows);
   } catch (err) {
     console.error('Erro em GET /motoristas:', err.message);
@@ -24,11 +25,10 @@ app.get('/motoristas', async (req, res) => {
   }
 });
 
-// Rota para adicionar um novo motorista
 app.post('/motoristas', async (req, res) => {
     try {
         const { nome, telefone, cnh } = req.body;
-        const newMotorista = await db.query(
+        const newMotorista = await pool.query(
             "INSERT INTO motoristas (nome, telefone, cnh) VALUES ($1, $2, $3) RETURNING *",
             [nome, telefone, cnh]
         );
@@ -39,11 +39,10 @@ app.post('/motoristas', async (req, res) => {
     }
 });
 
-// Rota para apagar um motorista
 app.delete('/motoristas/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        await db.query("DELETE FROM motoristas WHERE id = $1", [id]);
+        await pool.query("DELETE FROM motoristas WHERE id = $1", [id]);
         res.json({ message: "Motorista apagado com sucesso." });
     } catch (err) {
         console.error('Erro em DELETE /motoristas/:id:', err.message);
@@ -51,12 +50,11 @@ app.delete('/motoristas/:id', async (req, res) => {
     }
 });
 
-// Rota para atualizar um motorista existente
 app.put('/motoristas/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { nome, telefone, cnh } = req.body;
-        const updateMotorista = await db.query(
+        const updateMotorista = await pool.query(
             "UPDATE motoristas SET nome = $1, telefone = $2, cnh = $3 WHERE id = $4 RETURNING *",
             [nome, telefone, cnh, id]
         );
@@ -72,13 +70,12 @@ app.put('/motoristas/:id', async (req, res) => {
     }
 });
 
-// Rota para designar uma tarefa a um motorista
 app.put('/motoristas/:id/tarefa', async (req, res) => {
     try {
         const { id } = req.params;
         const { tarefa, caminhao_id } = req.body;
 
-        const motoristaAtualizado = await db.query(
+        const motoristaAtualizado = await pool.query(
             "UPDATE motoristas SET tarefa_atual = $1 WHERE id = $2 RETURNING *",
             [tarefa, id]
         );
@@ -88,7 +85,7 @@ app.put('/motoristas/:id/tarefa', async (req, res) => {
         }
 
         if (caminhao_id) {
-            await db.query(
+            await pool.query(
                 "UPDATE caminhoes SET status = 'em uso' WHERE id = $1",
                 [caminhao_id]
             );
@@ -104,10 +101,9 @@ app.put('/motoristas/:id/tarefa', async (req, res) => {
 
 // --- ROTAS PARA CAMINHÕES ---
 
-// Rota para obter todos os caminhões
 app.get('/caminhoes', async (req, res) => {
     try {
-        const result = await db.query('SELECT * FROM caminhoes ORDER BY id ASC');
+        const result = await pool.query('SELECT * FROM caminhoes ORDER BY id ASC');
         res.json(result.rows);
     } catch (err) {
         console.error('Erro em GET /caminhoes:', err.message);
@@ -115,11 +111,10 @@ app.get('/caminhoes', async (req, res) => {
     }
 });
 
-// Rota para adicionar um novo camião
 app.post('/caminhoes', async (req, res) => {
     try {
         const { placa, modelo, ano, capacidade } = req.body;
-        const newCaminhao = await db.query(
+        const newCaminhao = await pool.query(
             "INSERT INTO caminhoes (placa, modelo, ano, capacidade, status) VALUES ($1, $2, $3, $4, 'disponível') RETURNING *",
             [placa, modelo, ano, capacidade]
         );
@@ -130,12 +125,11 @@ app.post('/caminhoes', async (req, res) => {
     }
 });
 
-// Rota para atualizar um camião existente
 app.put('/caminhoes/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { placa, modelo, ano, capacidade, status } = req.body;
-        const updateCaminhao = await db.query(
+        const updateCaminhao = await pool.query(
             "UPDATE caminhoes SET placa = $1, modelo = $2, ano = $3, capacidade = $4, status = $5 WHERE id = $6 RETURNING *",
             [placa, modelo, ano, capacidade, status, id]
         );
@@ -151,11 +145,10 @@ app.put('/caminhoes/:id', async (req, res) => {
     }
 });
 
-// Rota para apagar um camião
 app.delete('/caminhoes/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        await db.query("DELETE FROM caminhoes WHERE id = $1", [id]);
+        await pool.query("DELETE FROM caminhoes WHERE id = $1", [id]);
         res.json({ message: "Camião apagado com sucesso." });
     } catch (err) {
         console.error('Erro em DELETE /caminhoes/:id:', err.message);
@@ -164,17 +157,15 @@ app.delete('/caminhoes/:id', async (req, res) => {
 });
 
 
-// --- ROTAS PARA ESTATÍSTICAS (COM VERIFICAÇÃO DE SEGURANÇA) ---
+// --- ROTAS PARA ESTATÍSTICAS ---
 
-// Rota para obter o total de motoristas
 app.get('/estatisticas/total_motoristas', async (req, res) => {
     try {
-        const result = await db.query('SELECT COUNT(*) AS total FROM motoristas');
-        // Verificação para garantir que o resultado é válido antes de o enviar
+        const result = await pool.query('SELECT COUNT(*) AS total FROM motoristas');
         if (result && result.rows) {
             res.json(result.rows[0]);
         } else {
-            res.json({ total: 0 }); // Envia uma resposta padrão em caso de problema
+            res.json({ total: 0 });
         }
     } catch (err) {
         console.error('Erro em GET /estatisticas/total_motoristas:', err.message);
@@ -182,15 +173,13 @@ app.get('/estatisticas/total_motoristas', async (req, res) => {
     }
 });
 
-// Rota para obter o total de caminhões
 app.get('/estatisticas/total_caminhoes', async (req, res) => {
     try {
-        const result = await db.query('SELECT COUNT(*) AS total FROM caminhoes');
-        // Verificação para garantir que o resultado é válido antes de o enviar
+        const result = await pool.query('SELECT COUNT(*) AS total FROM caminhoes');
         if (result && result.rows) {
             res.json(result.rows[0]);
         } else {
-            res.json({ total: 0 }); // Envia uma resposta padrão em caso de problema
+            res.json({ total: 0 });
         }
     } catch (err) {
         console.error('Erro em GET /estatisticas/total_caminhoes:', err.message);
