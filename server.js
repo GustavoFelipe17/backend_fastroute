@@ -19,7 +19,7 @@ app.get('/motoristas', async (req, res) => {
     const result = await db.query('SELECT * FROM motoristas ORDER BY id ASC');
     res.json(result.rows);
   } catch (err) {
-    console.error(err.message);
+    console.error('Erro em GET /motoristas:', err.message);
     res.status(500).send('Server Error');
   }
 });
@@ -34,7 +34,7 @@ app.post('/motoristas', async (req, res) => {
         );
         res.json(newMotorista.rows[0]);
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em POST /motoristas:', err.message);
         res.status(500).send('Server error');
     }
 });
@@ -46,15 +46,12 @@ app.delete('/motoristas/:id', async (req, res) => {
         await db.query("DELETE FROM motoristas WHERE id = $1", [id]);
         res.json({ message: "Motorista apagado com sucesso." });
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em DELETE /motoristas/:id:', err.message);
         res.status(500).send('Server error');
     }
 });
 
-
-// --- ROTAS CORRIGIDAS E ADICIONADAS ---
-
-// ROTA ADICIONADA: Atualizar um motorista existente
+// Rota para atualizar um motorista existente
 app.put('/motoristas/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -70,29 +67,26 @@ app.put('/motoristas/:id', async (req, res) => {
 
         res.json(updateMotorista.rows[0]);
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em PUT /motoristas/:id:', err.message);
         res.status(500).send('Server error');
     }
 });
 
-// ROTA ADICIONADA: Designar uma tarefa a um motorista
+// Rota para designar uma tarefa a um motorista
 app.put('/motoristas/:id/tarefa', async (req, res) => {
     try {
-        const { id } = req.params; // ID do motorista
-        const { tarefa, caminhao_id } = req.body; // Dados da tarefa e do camião
+        const { id } = req.params;
+        const { tarefa, caminhao_id } = req.body;
 
-        // Atualiza a tarefa do motorista
         const motoristaAtualizado = await db.query(
             "UPDATE motoristas SET tarefa_atual = $1 WHERE id = $2 RETURNING *",
             [tarefa, id]
         );
 
-        // Se o motorista não for encontrado, retorna erro
         if (motoristaAtualizado.rows.length === 0) {
             return res.status(404).json({ message: "Motorista não encontrado." });
         }
 
-        // Atualiza o status do camião para "em uso"
         if (caminhao_id) {
             await db.query(
                 "UPDATE caminhoes SET status = 'em uso' WHERE id = $1",
@@ -102,7 +96,7 @@ app.put('/motoristas/:id/tarefa', async (req, res) => {
 
         res.json(motoristaAtualizado.rows[0]);
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em PUT /motoristas/:id/tarefa:', err.message);
         res.status(500).send('Server error');
     }
 });
@@ -116,7 +110,7 @@ app.get('/caminhoes', async (req, res) => {
         const result = await db.query('SELECT * FROM caminhoes ORDER BY id ASC');
         res.json(result.rows);
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em GET /caminhoes:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -131,12 +125,12 @@ app.post('/caminhoes', async (req, res) => {
         );
         res.json(newCaminhao.rows[0]);
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em POST /caminhoes:', err.message);
         res.status(500).send('Server error');
     }
 });
 
-// ROTA ADICIONADA: Atualizar um camião existente
+// Rota para atualizar um camião existente
 app.put('/caminhoes/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -152,11 +146,10 @@ app.put('/caminhoes/:id', async (req, res) => {
 
         res.json(updateCaminhao.rows[0]);
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em PUT /caminhoes/:id:', err.message);
         res.status(500).send('Server error');
     }
 });
-
 
 // Rota para apagar um camião
 app.delete('/caminhoes/:id', async (req, res) => {
@@ -165,21 +158,26 @@ app.delete('/caminhoes/:id', async (req, res) => {
         await db.query("DELETE FROM caminhoes WHERE id = $1", [id]);
         res.json({ message: "Camião apagado com sucesso." });
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em DELETE /caminhoes/:id:', err.message);
         res.status(500).send('Server error');
     }
 });
 
 
-// --- ROTAS PARA ESTATÍSTICAS ---
+// --- ROTAS PARA ESTATÍSTICAS (COM VERIFICAÇÃO DE SEGURANÇA) ---
 
 // Rota para obter o total de motoristas
 app.get('/estatisticas/total_motoristas', async (req, res) => {
     try {
         const result = await db.query('SELECT COUNT(*) AS total FROM motoristas');
-        res.json(result.rows[0]);
+        // Verificação para garantir que o resultado é válido antes de o enviar
+        if (result && result.rows) {
+            res.json(result.rows[0]);
+        } else {
+            res.json({ total: 0 }); // Envia uma resposta padrão em caso de problema
+        }
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em GET /estatisticas/total_motoristas:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -188,9 +186,14 @@ app.get('/estatisticas/total_motoristas', async (req, res) => {
 app.get('/estatisticas/total_caminhoes', async (req, res) => {
     try {
         const result = await db.query('SELECT COUNT(*) AS total FROM caminhoes');
-        res.json(result.rows[0]);
+        // Verificação para garantir que o resultado é válido antes de o enviar
+        if (result && result.rows) {
+            res.json(result.rows[0]);
+        } else {
+            res.json({ total: 0 }); // Envia uma resposta padrão em caso de problema
+        }
     } catch (err) {
-        console.error(err.message);
+        console.error('Erro em GET /estatisticas/total_caminhoes:', err.message);
         res.status(500).send('Server Error');
     }
 });
