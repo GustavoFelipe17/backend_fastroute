@@ -141,6 +141,18 @@ app.patch('/api/tarefas/:id', async (req, res) => {
         const { id } = req.params;
         const { codigo, cliente, endereco, tipo, equipamento, peso, data, periodo } = req.body;
         
+        // Log para debug
+        console.log('PATCH - Dados recebidos:', req.body);
+        console.log('PATCH - ID da tarefa:', id);
+        
+        // Validação
+        if (!codigo || !cliente || !endereco || !tipo || !equipamento || !peso) {
+            return res.status(400).json({ 
+                error: 'Todos os campos são obrigatórios na edição',
+                camposRecebidos: req.body
+            });
+        }
+        
         const updateTarefa = await pool.query(
             "UPDATE tarefas SET codigo = $1, cliente = $2, endereco = $3, tipo = $4, equipamento = $5, peso = $6, data = $7, periodo = $8 WHERE id = $9 RETURNING *",
             [codigo, cliente, endereco, tipo, equipamento, peso, data, periodo, id]
@@ -149,6 +161,8 @@ app.patch('/api/tarefas/:id', async (req, res) => {
         if (updateTarefa.rows.length === 0) {
             return res.status(404).json({ error: "Tarefa não encontrada." });
         }
+        
+        console.log('PATCH - Tarefa atualizada:', updateTarefa.rows[0]);
         res.json(updateTarefa.rows[0]);
     } catch (err) {
         console.error('Erro em PATCH /api/tarefas/:id:', err.message);
