@@ -83,16 +83,32 @@ app.get('/api/tarefas', async (req, res) => {
 
 app.post('/api/tarefas', async (req, res) => {
     try {
-        const { codigo, cliente, endereco, equipamento, peso, status } = req.body;
+        const { codigo, cliente, endereco, tipo, equipamento, peso, data, periodo } = req.body;
         
-        if (!codigo || !cliente || !endereco || !equipamento || !peso) {
-            return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+        // Log para debug
+        console.log('Dados recebidos:', req.body);
+        
+        // Validação incluindo o tipo
+        if (!codigo || !cliente || !endereco || !tipo || !equipamento || !peso) {
+            return res.status(400).json({ 
+                error: 'Todos os campos são obrigatórios',
+                camposRecebidos: req.body,
+                camposFaltando: {
+                    codigo: !codigo,
+                    cliente: !cliente,
+                    endereco: !endereco,
+                    tipo: !tipo,
+                    equipamento: !equipamento,
+                    peso: !peso
+                }
+            });
         }
         
         const newTarefa = await pool.query(
-            "INSERT INTO tarefas (codigo, cliente, endereco, equipamento, peso, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
-            [codigo, cliente, endereco, equipamento, peso, status || 'Pendente']
+            "INSERT INTO tarefas (codigo, cliente, endereco, tipo, equipamento, peso, data, periodo, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+            [codigo, cliente, endereco, tipo, equipamento, peso, data || new Date(), periodo || 'Manhã', 'Pendente']
         );
+        
         res.status(201).json(newTarefa.rows[0]);
     } catch (err) {
         console.error('Erro em POST /api/tarefas:', err.message);
@@ -123,11 +139,11 @@ app.put('/api/tarefas/:id', async (req, res) => {
 app.patch('/api/tarefas/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { codigo, cliente, endereco, equipamento, peso } = req.body;
+        const { codigo, cliente, endereco, tipo, equipamento, peso, data, periodo } = req.body;
         
         const updateTarefa = await pool.query(
-            "UPDATE tarefas SET codigo = $1, cliente = $2, endereco = $3, equipamento = $4, peso = $5 WHERE id = $6 RETURNING *",
-            [codigo, cliente, endereco, equipamento, peso, id]
+            "UPDATE tarefas SET codigo = $1, cliente = $2, endereco = $3, tipo = $4, equipamento = $5, peso = $6, data = $7, periodo = $8 WHERE id = $9 RETURNING *",
+            [codigo, cliente, endereco, tipo, equipamento, peso, data, periodo, id]
         );
         
         if (updateTarefa.rows.length === 0) {
