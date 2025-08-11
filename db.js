@@ -1,16 +1,23 @@
 const { Pool } = require('pg');
-require('dotenv').config();
 
-// Configuração do pool de conexões com o PostgreSQL
+// A linha 'require('dotenv').config()' foi removida daqui.
+
+// Agora, quando este código for executado, process.env.DATABASE_URL já terá o valor correto.
 const pool = new Pool({
-  // A connectionString é a forma mais segura de passar as credenciais em produção
   connectionString: process.env.DATABASE_URL,
-  // A configuração SSL é necessária para conexões com serviços como o Render
   ssl: {
     rejectUnauthorized: false
   }
 });
 
-// Exportamos o próprio pool diretamente.
-// As consultas serão feitas a partir desta instância.
+// Adicionamos um log para confirmar a ligação no arranque.
+// Isto vai aparecer nos logs do Render se a ligação for bem-sucedida.
+pool.connect((err, client, release) => {
+  if (err) {
+    return console.error('ERRO AO LIGAR À BASE DE DADOS:', err.stack);
+  }
+  console.log('Base de dados ligada com sucesso.');
+  client.release();
+});
+
 module.exports = pool;

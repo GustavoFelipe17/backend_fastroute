@@ -1,14 +1,14 @@
-// Importação dos módulos necessários
+// A linha mais importante: Carrega as variáveis de ambiente ANTES de tudo.
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
-// Alterado para 'pool' para refletir que estamos a importar o pool diretamente
-const pool = require('./db'); 
+// Agora, quando o 'db.js' for importado, as variáveis de ambiente já existirão.
+const pool = require('./db');
 
-// Inicialização da aplicação Express
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Middlewares
 app.use(cors());
 app.use(express.json());
 
@@ -16,7 +16,6 @@ app.use(express.json());
 
 app.get('/motoristas', async (req, res) => {
   try {
-    // Alterado de db.query para pool.query
     const result = await pool.query('SELECT * FROM motoristas ORDER BY id ASC');
     res.json(result.rows);
   } catch (err) {
@@ -62,7 +61,6 @@ app.put('/motoristas/:id', async (req, res) => {
         if (updateMotorista.rows.length === 0) {
             return res.status(404).json({ message: "Motorista não encontrado." });
         }
-
         res.json(updateMotorista.rows[0]);
     } catch (err) {
         console.error('Erro em PUT /motoristas/:id:', err.message);
@@ -90,14 +88,12 @@ app.put('/motoristas/:id/tarefa', async (req, res) => {
                 [caminhao_id]
             );
         }
-
         res.json(motoristaAtualizado.rows[0]);
     } catch (err) {
         console.error('Erro em PUT /motoristas/:id/tarefa:', err.message);
         res.status(500).send('Server error');
     }
 });
-
 
 // --- ROTAS PARA CAMINHÕES ---
 
@@ -137,7 +133,6 @@ app.put('/caminhoes/:id', async (req, res) => {
         if (updateCaminhao.rows.length === 0) {
             return res.status(404).json({ message: "Camião não encontrado." });
         }
-
         res.json(updateCaminhao.rows[0]);
     } catch (err) {
         console.error('Erro em PUT /caminhoes/:id:', err.message);
@@ -156,17 +151,12 @@ app.delete('/caminhoes/:id', async (req, res) => {
     }
 });
 
-
 // --- ROTAS PARA ESTATÍSTICAS ---
 
 app.get('/estatisticas/total_motoristas', async (req, res) => {
     try {
         const result = await pool.query('SELECT COUNT(*) AS total FROM motoristas');
-        if (result && result.rows) {
-            res.json(result.rows[0]);
-        } else {
-            res.json({ total: 0 });
-        }
+        res.json(result.rows[0] || { total: 0 });
     } catch (err) {
         console.error('Erro em GET /estatisticas/total_motoristas:', err.message);
         res.status(500).send('Server Error');
@@ -176,17 +166,12 @@ app.get('/estatisticas/total_motoristas', async (req, res) => {
 app.get('/estatisticas/total_caminhoes', async (req, res) => {
     try {
         const result = await pool.query('SELECT COUNT(*) AS total FROM caminhoes');
-        if (result && result.rows) {
-            res.json(result.rows[0]);
-        } else {
-            res.json({ total: 0 });
-        }
+        res.json(result.rows[0] || { total: 0 });
     } catch (err) {
         console.error('Erro em GET /estatisticas/total_caminhoes:', err.message);
         res.status(500).send('Server Error');
     }
 });
-
 
 // Inicia o servidor
 app.listen(port, () => {
