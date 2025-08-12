@@ -119,12 +119,34 @@ app.post('/api/tarefas', async (req, res) => {
 app.put('/api/tarefas/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, motorista, caminhao } = req.body;
+        const { status, motorista, caminhao, observacao, dataFinalizacao } = req.body; // ⭐ ADICIONAR dataFinalizacao
         
-        const updateTarefa = await pool.query(
-            "UPDATE tarefas SET status = $1, motorista = $2, caminhao = $3 WHERE id = $4 RETURNING *",
-            [status, motorista, caminhao, id]
-        );
+        console.log('PUT - Dados recebidos:', req.body);
+        console.log('PUT - ID da tarefa:', id);
+        
+        // Se não há dataFinalizacao e o status é Concluída ou Cancelada, definir data atual
+        let finalDataFinalizacao = dataFinalizacao;
+        if (!finalDataFinalizacao && (status === 'Concluída' || status === 'Cancelada')) {
+            finalDataFinalizacao = new Date().toISOString().split('T')[0];
+        }
+        
+        let query, values;
+        
+        if (status === 'Cancelada' && observacao) {
+            query = "UPDATE tarefas SET status = $1, observacao_cancelamento = $2, data_finalizacao = $3 WHERE id = $4 RETURNING *";
+            values = [status, observacao, finalDataFinalizacao, id];
+        } else if (status === 'Concluída') {
+            query = "UPDATE tarefas SET status = $1, data_finalizacao = $2 WHERE id = $3 RETURNING *";
+            values = [status, finalDataFinalizacao, id];
+        } else if (motorista && caminhao) {
+            query = "UPDATE tarefas SET status = $1, motorista = $2, caminhao = $3 WHERE id = $4 RETURNING *";
+            values = [status, motorista, caminhao, id];
+        } else {
+            query = "UPDATE tarefas SET status = $1 WHERE id = $2 RETURNING *";
+            values = [status, id];
+        }
+        
+        const updateTarefa = await pool.query(query, values);
         
         if (updateTarefa.rows.length === 0) {
             return res.status(404).json({ error: "Tarefa não encontrada." });
