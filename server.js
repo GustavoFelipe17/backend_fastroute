@@ -119,7 +119,7 @@ app.post('/api/tarefas', async (req, res) => {
 app.put('/api/tarefas/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, motorista, caminhao, observacao, dataFinalizacao } = req.body; // ⭐ ADICIONAR dataFinalizacao
+        const { status, motorista, caminhao, observacao, dataFinalizacao } = req.body;
         
         console.log('PUT - Dados recebidos:', req.body);
         console.log('PUT - ID da tarefa:', id);
@@ -132,16 +132,23 @@ app.put('/api/tarefas/:id', async (req, res) => {
         
         let query, values;
         
+        // ✅ CASO 1: Cancelamento com observação
         if (status === 'Cancelada' && observacao) {
             query = "UPDATE tarefas SET status = $1, observacao_cancelamento = $2, data_finalizacao = $3 WHERE id = $4 RETURNING *";
             values = [status, observacao, finalDataFinalizacao, id];
-        } else if (status === 'Concluída') {
+        } 
+        // ✅ CASO 2: Conclusão de tarefa
+        else if (status === 'Concluída') {
             query = "UPDATE tarefas SET status = $1, data_finalizacao = $2 WHERE id = $3 RETURNING *";
             values = [status, finalDataFinalizacao, id];
-        } else if (motorista && caminhao) {
+        } 
+        // ✅ CASO 3: Designação de motorista e caminhão
+        else if (motorista && caminhao) {
             query = "UPDATE tarefas SET status = $1, motorista = $2, caminhao = $3 WHERE id = $4 RETURNING *";
             values = [status, motorista, caminhao, id];
-        } else {
+        } 
+        // ✅ CASO 4: Apenas mudança de status
+        else {
             query = "UPDATE tarefas SET status = $1 WHERE id = $2 RETURNING *";
             values = [status, id];
         }
@@ -151,6 +158,8 @@ app.put('/api/tarefas/:id', async (req, res) => {
         if (updateTarefa.rows.length === 0) {
             return res.status(404).json({ error: "Tarefa não encontrada." });
         }
+        
+        console.log('PUT - Tarefa atualizada:', updateTarefa.rows[0]);
         res.json(updateTarefa.rows[0]);
     } catch (err) {
         console.error('Erro em PUT /api/tarefas/:id:', err.message);
