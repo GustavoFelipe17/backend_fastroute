@@ -132,9 +132,15 @@ app.put('/api/tarefas/:id', async (req, res) => {
         
         let query, values;
         
-        // ✅ CASO 1: Cancelamento com observação
+        // ✅ CASO 1: Cancelamento com observação - INCREMENTAR TENTATIVAS
         if (status === 'Cancelada' && observacao) {
-            query = "UPDATE tarefas SET status = $1, observacao_cancelamento = $2, data_finalizacao = $3 WHERE id = $4 RETURNING *";
+            query = `UPDATE tarefas 
+                     SET status = $1, 
+                         observacao_cancelamento = $2, 
+                         data_finalizacao = $3,
+                         tentativas = COALESCE(tentativas, 0) + 1
+                     WHERE id = $4 
+                     RETURNING *`;
             values = [status, observacao, finalDataFinalizacao, id];
         } 
         // ✅ CASO 2: Conclusão de tarefa
@@ -142,7 +148,7 @@ app.put('/api/tarefas/:id', async (req, res) => {
             query = "UPDATE tarefas SET status = $1, data_finalizacao = $2 WHERE id = $3 RETURNING *";
             values = [status, finalDataFinalizacao, id];
         } 
-        // ✅ CASO 3: Designação de motorista e caminhão
+        // ✅ CASO 3: Designação de motorista e caminhão (reagendamento)
         else if (motorista && caminhao) {
             query = "UPDATE tarefas SET status = $1, motorista = $2, caminhao = $3 WHERE id = $4 RETURNING *";
             values = [status, motorista, caminhao, id];
