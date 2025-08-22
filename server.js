@@ -150,8 +150,9 @@ app.patch('/api/tarefas/:id', async (req, res) => {
         const { id } = req.params;
         const updates = req.body;
         
-        console.log(`Atualizando parcialmente tarefa ${id}:`, updates);
+        console.log(`📝 Atualizando parcialmente tarefa ${id}:`, updates);
         
+        // Validar se há campos para atualizar
         const fields = Object.keys(updates);
         const values = Object.values(updates);
         
@@ -159,20 +160,43 @@ app.patch('/api/tarefas/:id', async (req, res) => {
             return res.status(400).json({ error: 'Nenhum campo para atualizar' });
         }
         
-        const setClause = fields.map((field, index) => `${field} = $${index + 1}`).join(', ');
-        const query = `UPDATE tarefas SET ${setClause} WHERE id = $${fields.length + 1} RETURNING *`;
+        // Filtrar apenas campos válidos para evitar SQL injection
+        const allowedFields = [
+            'codigo', 'cliente', 'endereco', 'tipo', 'equipamento', 
+            'peso', 'data', 'periodo', 'status', 'motorista', 'caminhao'
+        ];
         
-        const result = await pool.query(query, [...values, id]);
+        const validFields = fields.filter(field => allowedFields.includes(field));
+        const validValues = validFields.map(field => updates[field]);
+        
+        if (validFields.length === 0) {
+            return res.status(400).json({ error: 'Nenhum campo válido para atualizar' });
+        }
+        
+        // Construir query dinamicamente apenas com campos válidos
+        const setClause = validFields.map((field, index) => `${field} = $${index + 1}`).join(', ');
+        const query = `UPDATE tarefas SET ${setClause} WHERE id = $${validFields.length + 1} RETURNING *`;
+        
+        console.log('🔍 SQL Query:', query);
+        console.log('🔍 Values:', [...validValues, id]);
+        
+        const result = await pool.query(query, [...validValues, id]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Tarefa não encontrada' });
         }
         
-        console.log('Tarefa atualizada parcialmente:', result.rows[0]);
+        console.log('✅ Tarefa atualizada parcialmente:', result.rows[0]);
         res.json(result.rows[0]);
+        
     } catch (err) {
-        console.error('Erro em PATCH /api/tarefas:', err.message);
-        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
+        console.error('❌ Erro em PATCH /api/tarefas:', err.message);
+        console.error('❌ Stack trace:', err.stack);
+        res.status(500).json({ 
+            error: 'Erro interno do servidor', 
+            details: err.message,
+            code: err.code
+        });
     }
 });
 
