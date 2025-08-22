@@ -1,15 +1,16 @@
-// A linha mais importante: Carrega as variáveis de ambiente ANTES de tudo.
+// server.js
 require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-// Agora, quando o 'db.js' for importado, as variáveis de ambiente já existirão.
 const pool = require('./db');
+const { authenticateToken } = require('./middleware/auth');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Configuração mais específica do CORS
+// Configuração do CORS
 app.use(cors({
   origin: [
     'http://localhost:3000',
@@ -24,34 +25,37 @@ app.use(cors({
 
 app.use(express.json());
 
-// Middleware de log para debug
+// Middleware de log
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
-// Rota de teste para verificar se a API está funcionando
+// Rotas de autenticação (públicas)
+app.use('/api/auth', authRoutes);
+
+// Rota principal
 app.get('/', (req, res) => {
   res.json({ 
     message: 'API de Gestão de Tarefas funcionando!',
     timestamp: new Date().toISOString(),
     endpoints: [
-      'GET /motoristas',
-      'POST /motoristas',
-      'PUT /motoristas/:id',
-      'DELETE /motoristas/:id',
-      'PUT /motoristas/:id/tarefa',
-      'GET /caminhoes',
-      'POST /caminhoes',
-      'PUT /caminhoes/:id',
-      'DELETE /caminhoes/:id',
-      'GET /estatisticas/total_motoristas',
-      'GET /estatisticas/total_caminhoes'
+      'POST /api/auth/login - Login de usuário',
+      'POST /api/auth/register - Cadastro de usuário',
+      'GET /api/auth/verify - Verificar token',
+      'GET /api/tarefas - Listar tarefas (requer autenticação)',
+      'POST /api/tarefas - Criar tarefa (requer autenticação)',
+      'PUT /api/tarefas/:id - Atualizar tarefa (requer autenticação)',
+      'DELETE /api/tarefas/:id - Deletar tarefa (requer autenticação)',
+      'GET /api/motoristas - Listar motoristas (requer autenticação)',
+      'POST /api/motoristas - Criar motorista (requer autenticação)',
+      'GET /api/caminhoes - Listar caminhões (requer autenticação)',
+      'POST /api/caminhoes - Criar caminhão (requer autenticação)'
     ]
   });
 });
 
-// Rota de health check
+// Health check
 app.get('/health', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -69,8 +73,13 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// --- ROTAS PARA TAREFAS ---
+// MIDDLEWARE DE AUTENTICAÇÃO PARA TODAS AS ROTAS PROTEGIDAS
+app.use('/api/tarefas', authenticateToken);
+app.use('/api/motoristas', authenticateToken);
+app.use('/api/caminhoes', authenticateToken);
+app.use('/api/estatisticas', authenticateToken);
 
+// --- ROTAS PROTEGIDAS PARA TAREFAS ---
 app.get('/api/tarefas', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM tarefas ORDER BY id DESC');
@@ -85,31 +94,24 @@ app.post('/api/tarefas', async (req, res) => {
     try {
         const { codigo, cliente, endereco, tipo, equipamento, peso, data, periodo } = req.body;
         
-        // Log para debug
         console.log('Dados recebidos:', req.body);
+        console.log('Usuário autenticado:', req.user);
         
-        // Validação incluindo o tipo
         if (!codigo || !cliente || !endereco || !tipo || !equipamento || !peso) {
             return res.status(400).json({ 
-                error: 'Todos os campos são obrigatórios',
-                camposRecebidos: req.body,
-                camposFaltando: {
-                    codigo: !codigo,
-                    cliente: !cliente,
-                    endereco: !endereco,
-                    tipo: !tipo,
-                    equipamento: !equipamento,
-                    peso: !peso
-                }
+                error: 'Campos obrigatórios: código, cliente, endereço, tipo, equipamento e peso' 
             });
         }
-        
-        const newTarefa = await pool.query(
-            "INSERT INTO tarefas (codigo, cliente, endereco, tipo, equipamento, peso, data, periodo, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
-            [codigo, cliente, endereco, tipo, equipamento, peso, data || new Date(), periodo || 'Manhã', 'Pendente']
+
+        const result = await pool.query(
+            `INSERT INTO tarefas (codigo, cliente, endereco, tipo, equipamento, peso, data, periodo, status) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Pendente') 
+             RETURNING *`,
+            [codigo, cliente, endereco, tipo, equipamento, peso, data, periodo]
         );
-        
-        res.status(201).json(newTarefa.rows[0]);
+
+        console.log('Tarefa criada:', result.rows[0]);
+        res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error('Erro em POST /api/tarefas:', err.message);
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
@@ -119,56 +121,26 @@ app.post('/api/tarefas', async (req, res) => {
 app.put('/api/tarefas/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, motorista, caminhao, observacao, dataFinalizacao } = req.body;
+        const { codigo, cliente, endereco, tipo, equipamento, peso, data, periodo, status } = req.body;
         
-        console.log('PUT - Dados recebidos:', req.body);
-        console.log('PUT - ID da tarefa:', id);
+        console.log(`Atualizando tarefa ${id}:`, req.body);
         
-        // Se não há dataFinalizacao e o status é Concluída ou Cancelada, definir data atual
-        let finalDataFinalizacao = dataFinalizacao;
-        if (!finalDataFinalizacao && (status === 'Concluída' || status === 'Cancelada')) {
-            finalDataFinalizacao = new Date().toISOString().split('T')[0];
+        const result = await pool.query(
+            `UPDATE tarefas SET 
+             codigo = $1, cliente = $2, endereco = $3, tipo = $4, 
+             equipamento = $5, peso = $6, data = $7, periodo = $8, status = $9 
+             WHERE id = $10 RETURNING *`,
+            [codigo, cliente, endereco, tipo, equipamento, peso, data, periodo, status, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Tarefa não encontrada' });
         }
-        
-        let query, values;
-        
-        // ✅ CASO 1: Cancelamento com observação - INCREMENTAR TENTATIVAS
-        if (status === 'Cancelada' && observacao) {
-            query = `UPDATE tarefas 
-                     SET status = $1, 
-                         observacao_cancelamento = $2, 
-                         data_finalizacao = $3,
-                         tentativas = COALESCE(tentativas, 0) + 1
-                     WHERE id = $4 
-                     RETURNING *`;
-            values = [status, observacao, finalDataFinalizacao, id];
-        } 
-        // ✅ CASO 2: Conclusão de tarefa
-        else if (status === 'Concluída') {
-            query = "UPDATE tarefas SET status = $1, data_finalizacao = $2 WHERE id = $3 RETURNING *";
-            values = [status, finalDataFinalizacao, id];
-        } 
-        // ✅ CASO 3: Designação de motorista e caminhão (reagendamento)
-        else if (motorista && caminhao) {
-            query = "UPDATE tarefas SET status = $1, motorista = $2, caminhao = $3 WHERE id = $4 RETURNING *";
-            values = [status, motorista, caminhao, id];
-        } 
-        // ✅ CASO 4: Apenas mudança de status
-        else {
-            query = "UPDATE tarefas SET status = $1 WHERE id = $2 RETURNING *";
-            values = [status, id];
-        }
-        
-        const updateTarefa = await pool.query(query, values);
-        
-        if (updateTarefa.rows.length === 0) {
-            return res.status(404).json({ error: "Tarefa não encontrada." });
-        }
-        
-        console.log('PUT - Tarefa atualizada:', updateTarefa.rows[0]);
-        res.json(updateTarefa.rows[0]);
+
+        console.log('Tarefa atualizada:', result.rows[0]);
+        res.json(result.rows[0]);
     } catch (err) {
-        console.error('Erro em PUT /api/tarefas/:id:', err.message);
+        console.error('Erro em PUT /api/tarefas:', err.message);
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
     }
 });
@@ -176,33 +148,30 @@ app.put('/api/tarefas/:id', async (req, res) => {
 app.patch('/api/tarefas/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { codigo, cliente, endereco, tipo, equipamento, peso, data, periodo } = req.body;
+        const updates = req.body;
         
-        // Log para debug
-        console.log('PATCH - Dados recebidos:', req.body);
-        console.log('PATCH - ID da tarefa:', id);
+        console.log(`Atualizando parcialmente tarefa ${id}:`, updates);
         
-        // Validação
-        if (!codigo || !cliente || !endereco || !tipo || !equipamento || !peso) {
-            return res.status(400).json({ 
-                error: 'Todos os campos são obrigatórios na edição',
-                camposRecebidos: req.body
-            });
+        const fields = Object.keys(updates);
+        const values = Object.values(updates);
+        
+        if (fields.length === 0) {
+            return res.status(400).json({ error: 'Nenhum campo para atualizar' });
         }
         
-        const updateTarefa = await pool.query(
-            "UPDATE tarefas SET codigo = $1, cliente = $2, endereco = $3, tipo = $4, equipamento = $5, peso = $6, data = $7, periodo = $8 WHERE id = $9 RETURNING *",
-            [codigo, cliente, endereco, tipo, equipamento, peso, data, periodo, id]
-        );
+        const setClause = fields.map((field, index) => `${field} = $${index + 1}`).join(', ');
+        const query = `UPDATE tarefas SET ${setClause} WHERE id = $${fields.length + 1} RETURNING *`;
         
-        if (updateTarefa.rows.length === 0) {
-            return res.status(404).json({ error: "Tarefa não encontrada." });
+        const result = await pool.query(query, [...values, id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Tarefa não encontrada' });
         }
         
-        console.log('PATCH - Tarefa atualizada:', updateTarefa.rows[0]);
-        res.json(updateTarefa.rows[0]);
+        console.log('Tarefa atualizada parcialmente:', result.rows[0]);
+        res.json(result.rows[0]);
     } catch (err) {
-        console.error('Erro em PATCH /api/tarefas/:id:', err.message);
+        console.error('Erro em PATCH /api/tarefas:', err.message);
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
     }
 });
@@ -210,258 +179,139 @@ app.patch('/api/tarefas/:id', async (req, res) => {
 app.delete('/api/tarefas/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await pool.query("DELETE FROM tarefas WHERE id = $1 RETURNING *", [id]);
+        
+        console.log(`Deletando tarefa ${id}`);
+        
+        const result = await pool.query('DELETE FROM tarefas WHERE id = $1 RETURNING *', [id]);
         
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Tarefa não encontrada" });
+            return res.status(404).json({ error: 'Tarefa não encontrada' });
         }
         
-        res.json({ message: "Tarefa deletada com sucesso.", deletedTarefa: result.rows[0] });
+        console.log('Tarefa deletada:', result.rows[0]);
+        res.json({ message: 'Tarefa deletada com sucesso', tarefa: result.rows[0] });
     } catch (err) {
-        console.error('Erro em DELETE /api/tarefas/:id:', err.message);
+        console.error('Erro em DELETE /api/tarefas:', err.message);
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
     }
 });
 
-// --- ROTAS PARA MOTORISTAS ---
-
+// --- ROTAS PROTEGIDAS PARA MOTORISTAS ---
 app.get('/api/motoristas', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM motoristas ORDER BY id ASC');
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Erro em GET /api/motoristas:', err.message);
-    res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
-  }
+    try {
+        const result = await pool.query('SELECT * FROM motoristas ORDER BY id');
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Erro em GET /motoristas:', err.message);
+        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
+    }
 });
 
 app.post('/api/motoristas', async (req, res) => {
     try {
-        const { nome, telefone, cnh } = req.body;
+        const { nome, cnh, telefone, email } = req.body;
         
-        if (!nome || !telefone || !cnh) {
-            return res.status(400).json({ error: 'Nome, telefone e CNH são obrigatórios' });
+        if (!nome || !cnh) {
+            return res.status(400).json({ error: 'Nome e CNH são obrigatórios' });
         }
-        
-        const newMotorista = await pool.query(
-            "INSERT INTO motoristas (nome, telefone, cnh) VALUES ($1, $2, $3) RETURNING *",
-            [nome, telefone, cnh]
-        );
-        res.status(201).json(newMotorista.rows[0]);
-    } catch (err) {
-        console.error('Erro em POST /api/motoristas:', err.message);
-        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
-    }
-});
 
-app.delete('/api/motoristas/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const result = await pool.query("DELETE FROM motoristas WHERE id = $1 RETURNING *", [id]);
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Motorista não encontrado" });
-        }
-        
-        res.json({ message: "Motorista apagado com sucesso." });
-    } catch (err) {
-        console.error('Erro em DELETE /api/motoristas/:id:', err.message);
-        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
-    }
-});
-
-app.put('/api/motoristas/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { nome, telefone, cnh } = req.body;
-        
-        if (!nome || !telefone || !cnh) {
-            return res.status(400).json({ error: 'Nome, telefone e CNH são obrigatórios' });
-        }
-        
-        const updateMotorista = await pool.query(
-            "UPDATE motoristas SET nome = $1, telefone = $2, cnh = $3 WHERE id = $4 RETURNING *",
-            [nome, telefone, cnh, id]
-        );
-        
-        if (updateMotorista.rows.length === 0) {
-            return res.status(404).json({ error: "Motorista não encontrado." });
-        }
-        res.json(updateMotorista.rows[0]);
-    } catch (err) {
-        console.error('Erro em PUT /api/motoristas/:id:', err.message);
-        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
-    }
-});
-
-app.put('/api/motoristas/:id/tarefa', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { tarefa, caminhao_id } = req.body;
-
-        const motoristaAtualizado = await pool.query(
-            "UPDATE motoristas SET tarefa_atual = $1 WHERE id = $2 RETURNING *",
-            [tarefa, id]
+        const result = await pool.query(
+            'INSERT INTO motoristas (nome, cnh, telefone, email, disponivel) VALUES ($1, $2, $3, $4, true) RETURNING *',
+            [nome, cnh, telefone, email]
         );
 
-        if (motoristaAtualizado.rows.length === 0) {
-            return res.status(404).json({ error: "Motorista não encontrado." });
-        }
-
-        if (caminhao_id) {
-            await pool.query(
-                "UPDATE caminhoes SET status = 'em uso' WHERE id = $1",
-                [caminhao_id]
-            );
-        }
-        res.json(motoristaAtualizado.rows[0]);
+        res.status(201).json(result.rows[0]);
     } catch (err) {
-        console.error('Erro em PUT /api/motoristas/:id/tarefa:', err.message);
+        console.error('Erro em POST /motoristas:', err.message);
+        if (err.code === '23505') {
+            return res.status(409).json({ error: 'CNH já cadastrada no sistema' });
+        }
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
     }
 });
 
-// --- ROTAS PARA CAMINHÕES ---
-
+// --- ROTAS PROTEGIDAS PARA CAMINHÕES ---
 app.get('/api/caminhoes', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM caminhoes ORDER BY id ASC');
+        const result = await pool.query('SELECT * FROM caminhoes ORDER BY id');
         res.json(result.rows);
     } catch (err) {
-        console.error('Erro em GET /api/caminhoes:', err.message);
+        console.error('Erro em GET /caminhoes:', err.message);
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
     }
 });
 
 app.post('/api/caminhoes', async (req, res) => {
     try {
-        const { placa, modelo, ano, capacidade } = req.body;
+        const { placa, modelo, marca, ano, capacidade } = req.body;
         
-        if (!placa || !modelo || !ano || !capacidade) {
-            return res.status(400).json({ error: 'Placa, modelo, ano e capacidade são obrigatórios' });
+        if (!placa || !modelo) {
+            return res.status(400).json({ error: 'Placa e modelo são obrigatórios' });
         }
-        
-        const newCaminhao = await pool.query(
-            "INSERT INTO caminhoes (placa, modelo, ano, capacidade, status) VALUES ($1, $2, $3, $4, 'disponível') RETURNING *",
-            [placa, modelo, ano, capacidade]
-        );
-        res.status(201).json(newCaminhao.rows[0]);
-    } catch (err) {
-        console.error('Erro em POST /api/caminhoes:', err.message);
-        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
-    }
-});
 
-app.put('/api/caminhoes/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { placa, modelo, ano, capacidade, status } = req.body;
-        
-        if (!placa || !modelo || !ano || !capacidade) {
-            return res.status(400).json({ error: 'Placa, modelo, ano e capacidade são obrigatórios' });
-        }
-        
-        const updateCaminhao = await pool.query(
-            "UPDATE caminhoes SET placa = $1, modelo = $2, ano = $3, capacidade = $4, status = $5 WHERE id = $6 RETURNING *",
-            [placa, modelo, ano, capacidade, status || 'disponível', id]
+        const result = await pool.query(
+            'INSERT INTO caminhoes (placa, modelo, marca, ano, capacidade, disponivel) VALUES ($1, $2, $3, $4, $5, true) RETURNING *',
+            [placa, modelo, marca, ano, capacidade]
         );
 
-        if (updateCaminhao.rows.length === 0) {
-            return res.status(404).json({ error: "Caminhão não encontrado." });
-        }
-        res.json(updateCaminhao.rows[0]);
+        res.status(201).json(result.rows[0]);
     } catch (err) {
-        console.error('Erro em PUT /api/caminhoes/:id:', err.message);
+        console.error('Erro em POST /caminhoes:', err.message);
+        if (err.code === '23505') {
+            return res.status(409).json({ error: 'Placa já cadastrada no sistema' });
+        }
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
     }
 });
 
-app.delete('/api/caminhoes/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const result = await pool.query("DELETE FROM caminhoes WHERE id = $1 RETURNING *", [id]);
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Caminhão não encontrado" });
-        }
-        
-        res.json({ message: "Caminhão apagado com sucesso." });
-    } catch (err) {
-        console.error('Erro em DELETE /api/caminhoes/:id:', err.message);
-        res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
-    }
-});
-
-// --- ROTAS PARA ESTATÍSTICAS ---
-
+// --- ESTATÍSTICAS PROTEGIDAS ---
 app.get('/api/estatisticas/total_motoristas', async (req, res) => {
     try {
-        const result = await pool.query('SELECT COUNT(*) AS total FROM motoristas');
-        res.json({ total: parseInt(result.rows[0].total) || 0 });
+        const result = await pool.query('SELECT COUNT(*) as total FROM motoristas');
+        res.json({ total: parseInt(result.rows[0].total) });
     } catch (err) {
-        console.error('Erro em GET /api/estatisticas/total_motoristas:', err.message);
+        console.error('Erro em estatísticas de motoristas:', err.message);
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
     }
 });
 
 app.get('/api/estatisticas/total_caminhoes', async (req, res) => {
     try {
-        const result = await pool.query('SELECT COUNT(*) AS total FROM caminhoes');
-        res.json({ total: parseInt(result.rows[0].total) || 0 });
+        const result = await pool.query('SELECT COUNT(*) as total FROM caminhoes');
+        res.json({ total: parseInt(result.rows[0].total) });
     } catch (err) {
-        console.error('Erro em GET /api/estatisticas/total_caminhoes:', err.message);
+        console.error('Erro em estatísticas de caminhões:', err.message);
         res.status(500).json({ error: 'Erro interno do servidor', details: err.message });
     }
 });
 
-// Middleware para capturar rotas não encontradas
+// Middleware para tratar rotas não encontradas
 app.use('*', (req, res) => {
-  res.status(404).json({
-    error: 'Endpoint não encontrado',
+  res.status(404).json({ 
+    error: 'Rota não encontrada',
     path: req.originalUrl,
-    method: req.method,
-    availableEndpoints: [
-      'GET /',
-      'GET /health',
-      'GET /api/motoristas',
-      'POST /api/motoristas',
-      'PUT /api/motoristas/:id',
-      'DELETE /api/motoristas/:id',
-      'PUT /api/motoristas/:id/tarefa',
-      'GET /api/caminhoes',
-      'POST /api/caminhoes',
-      'PUT /api/caminhoes/:id',
-      'DELETE /api/caminhoes/:id',
-      'GET /api/estatisticas/total_motoristas',
-      'GET /api/estatisticas/total_caminhoes'
-    ]
+    method: req.method
   });
 });
 
-// Middleware de tratamento de erros
-app.use((err, req, res, next) => {
-  console.error('Erro não tratado:', err);
+// Middleware para tratar erros globais
+app.use((error, req, res, next) => {
+  console.error('Erro não capturado:', error);
   res.status(500).json({
     error: 'Erro interno do servidor',
-    message: err.message,
-    timestamp: new Date().toISOString()
+    details: error.message
   });
 });
 
-// Inicia o servidor
-app.listen(port, '0.0.0.0', () => {
+app.listen(port, () => {
   console.log(`🚀 Servidor rodando na porta ${port}`);
-  console.log(`📋 Endpoints disponíveis:`);
-  console.log(`   GET  /`);
-  console.log(`   GET  /health`);
-  console.log(`   GET  /api/motoristas`);
-  console.log(`   POST /api/motoristas`);
-  console.log(`   PUT  /api/motoristas/:id`);
-  console.log(`   DELETE /api/motoristas/:id`);
-  console.log(`   GET  /api/caminhoes`);
-  console.log(`   POST /api/caminhoes`);
-  console.log(`   PUT  /api/caminhoes/:id`);
-  console.log(`   DELETE /api/caminhoes/:id`);
-  console.log(`   GET  /api/estatisticas/total_motoristas`);
-  console.log(`   GET  /api/estatisticas/total_caminhoes`);
+  console.log(`📝 Endpoints disponíveis:`);
+  console.log(`   • GET  /health - Health check`);
+  console.log(`   • POST /api/auth/login - Login`);
+  console.log(`   • POST /api/auth/register - Cadastro`);
+  console.log(`   • GET  /api/auth/verify - Verificar token`);
+  console.log(`   • GET  /api/tarefas - Listar tarefas (autenticado)`);
+  console.log(`   • POST /api/tarefas - Criar tarefa (autenticado)`);
+  console.log(`   • GET  /api/motoristas - Listar motoristas (autenticado)`);
+  console.log(`   • GET  /api/caminhoes - Listar caminhões (autenticado)`);
 });
